@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClickUp Timesheet</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:          #191919;
+    --surface:     #212121;
+    --surface2:    #272727;
+    --border:      #303030;
+    --border-soft: #272727;
+    --accent:      #7b68ee;
+    --accent-dim:  rgba(123,104,238,0.10);
+    --text:        #dcdce8;
+    --text-dim:    #8888a0;
+    --text-bright: #f2f2f8;
+    --today-bg:    rgba(123,104,238,0.08);
+    --weekend-bg:  rgba(0,0,0,0.20);
+    --hover-bg:    rgba(255,255,255,0.04);
+    --red:         #f87272;
+  }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Auth Screen */
+  #auth-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+  }
+
+  .auth-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 40px;
+    width: 420px;
+    text-align: center;
+  }
+
+  .auth-card h1 {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: var(--text-bright);
+  }
+
+  .auth-card p {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 28px;
+  }
+
+  .auth-card input {
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    color: var(--text-bright);
+    font-size: 13px;
+    margin-bottom: 14px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .auth-card input:focus { border-color: var(--accent); }
+
+  .btn {
+    display: inline-block;
+    padding: 9px 20px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 7px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.15s;
+  }
+
+  .btn:hover { opacity: 0.85; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .btn-sm { padding: 5px 14px; font-size: 12px; }
+
+  .btn-ghost {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+  }
+
+  .btn-ghost:hover { background: var(--hover-bg); color: var(--text); opacity: 1; }
+
+  .error-msg {
+    color: var(--red);
+    font-size: 12px;
+    margin-top: 10px;
+  }
+
+  /* App Layout */
+  #app { display: none; }
+
+  header {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+
+  header h1 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text-bright);
+    flex: 0 0 auto;
+  }
+
+  .week-nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 16px;
+  }
+
+  .week-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-bright);
+    min-width: 200px;
+    text-align: center;
+  }
+
+  .nav-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 6px;
+    width: 26px;
+    height: 26px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    transition: background 0.12s, color 0.12s;
+  }
+
+  .nav-btn:hover { background: var(--hover-bg); color: var(--text-bright); }
+
+  .spacer { flex: 1; }
+
+  .user-info {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Grid */
+  .grid-wrapper {
+    padding: 20px 24px;
+    overflow-x: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    min-width: 800px;
+  }
+
+  thead th {
+    background: var(--surface);
+    padding: 9px 14px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  thead th:first-child {
+    text-align: left;
+    width: 280px;
+    position: sticky;
+    left: 0;
+    z-index: 2;
+    background: var(--surface);
+  }
+
+  thead th.today-col { color: var(--accent); }
+
+  tbody tr { border-bottom: 1px solid var(--border-soft); }
+
+  tbody tr:hover td { background: var(--hover-bg); }
+
+  td {
+    padding: 0;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  td:first-child {
+    text-align: left;
+    padding: 10px 14px;
+    position: sticky;
+    left: 0;
+    background: var(--bg);
+    z-index: 1;
+  }
+
+  tbody tr:hover td:first-child { background: var(--hover-bg); }
+
+  .task-name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-bright);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 250px;
+  }
+
+  .task-list {
+    font-size: 12px;
+    color: #7878a0;
+    margin-top: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 250px;
+  }
+
+  /* List group header */
+  tr.list-group-header td {
+    background: var(--surface2);
+    padding: 7px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-dim);
+    cursor: pointer;
+    user-select: none;
+    border-top: 1px solid var(--border);
+  }
+
+  tr.list-group-header:hover td { background: var(--hover-bg); }
+
+  tr.list-group-header td:first-child {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    background: var(--surface2);
+  }
+
+  tr.list-group-header:hover td:first-child { background: var(--hover-bg); }
+
+  .group-chevron {
+    font-size: 10px;
+    transition: transform 0.15s;
+    color: var(--text-dim);
+  }
+
+  .group-chevron.collapsed { transform: rotate(-90deg); }
+
+  .group-link {
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 12px;
+    margin-left: 6px;
+    opacity: 0;
+    transition: opacity 0.15s, color 0.15s;
+  }
+
+  tr.list-group-header:hover .group-link { opacity: 1; }
+  .group-link:hover { color: var(--accent); }
+
+  .group-total {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent);
+    margin-left: auto;
+  }
+
+  /* Task name link */
+  .task-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .task-link {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .task-link:hover { color: var(--accent); text-decoration: underline; }
+
+  /* Status badges */
+  .status-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: var(--surface2);
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .status-badge.status-in-progress { background: rgba(123,104,238,0.2); color: #a594f9; }
+  .status-badge.status-complete,
+  .status-badge.status-done { background: rgba(52,199,89,0.15); color: #4cd964; }
+  .status-badge.status-to-do { background: var(--surface2); color: var(--text-dim); }
+  .status-badge.status-closed { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+
+  /* Subtask rows */
+  tr.is-subtask td:first-child {
+    padding-left: 14px;
+  }
+
+  .subtask-inner {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .subtask-icon {
+    flex-shrink: 0;
+    width: 12px;
+    height: 14px;
+    border-left: 2px solid var(--border);
+    border-bottom: 2px solid var(--border);
+    border-radius: 0 0 0 3px;
+    margin-bottom: 2px;
+  }
+
+  tr.is-subtask .task-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    max-width: 220px;
+  }
+
+  tr.is-subtask .task-list { display: none; }
+
+  .time-cell {
+    width: 88px;
+    height: 50px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text);
+    transition: background 0.1s;
+    border-left: 1px solid var(--border-soft);
+  }
+
+  .time-cell:hover { background: var(--hover-bg) !important; }
+
+  .time-cell.has-time { color: var(--accent); font-weight: 600; }
+
+  .time-cell.today-col { background: var(--today-bg); }
+  .time-cell.weekend-col { background: var(--weekend-bg); }
+  thead th.weekend-col { color: var(--text-dim); opacity: 0.6; }
+
+  .time-cell input {
+    width: 68px;
+    background: var(--surface2);
+    border: 1.5px solid var(--accent);
+    border-radius: 6px;
+    color: var(--text-bright);
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+    padding: 5px 6px;
+    outline: none;
+  }
+
+  /* Totals row & col */
+  .total-row td {
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    padding: 9px 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .total-row td.has-total { color: var(--accent); }
+
+  .total-row td:first-child { color: var(--text-dim); font-weight: 500; }
+
+  td.total-col {
+    background: var(--surface);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    border-left: 1px solid var(--border);
+    cursor: default;
+  }
+
+  td.total-col:hover { background: var(--surface) !important; }
+
+  /* Loading */
+  #loading {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(28, 28, 33, 0.8);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .spinner {
+    width: 32px;
+    height: 32px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.65s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .loading-text { color: var(--text-dim); font-size: 13px; }
+
+  /* Empty state */
+  .empty-state {
+    padding: 60px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Auth Screen -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <h1>ClickUp Timesheet</h1>
+    <p>Paste your ClickUp API token to get started</p>
+    <input type="password" id="token-input" placeholder="pk_xxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+    <br>
+    <button class="btn" id="connect-btn" onclick="connect()">Connect</button>
+    <div class="error-msg" id="auth-error"></div>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <header>
+    <h1>Timesheet</h1>
+    <div class="week-nav">
+      <button class="nav-btn" onclick="changeWeek(-1)">&#8249;</button>
+      <span class="week-label" id="week-label"></span>
+      <button class="nav-btn" onclick="changeWeek(1)">&#8250;</button>
+      <button class="btn btn-sm" style="margin-left:8px" onclick="goToCurrentWeek()">Today</button>
+      <button class="btn btn-sm btn-ghost" id="completed-toggle" onclick="toggleCompleted()" style="margin-left:4px">Completed: Off</button>
+    </div>
+    <div class="spacer"></div>
+    <div class="user-info">
+      <span id="user-name"></span>
+<button class="btn btn-sm btn-ghost" onclick="logout()">Logout</button>
+    </div>
+  </header>
+  <div class="grid-wrapper">
+    <div id="grid-container"></div>
+  </div>
+</div>
+
+<!-- Loading overlay -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Loading…</div>
+</div>
+
+<script>
+const BASE = 'https://api.clickup.com/api/v2';
+
+let token = null;
+let userId = null;
+let teamId = null;
+let currentWeekStart = null; // Monday 00:00 local time (Date)
+let tasks = [];
+let collapsedLists = new Set();
+let showCompleted = false;
+let timeEntries = {}; // `${taskId}_${YYYY-MM-DD}` → [{id, duration, start}]
+
+// ── Utilities ──────────────────────────────────────────────────────────────
+
+async function api(path, opts = {}) {
+  const r = await fetch(BASE + path, {
+    ...opts,
+    headers: { Authorization: token, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.err || data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function getMonday(date) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = (day === 0 ? -6 : 1 - day);
+  d.setDate(d.getDate() + diff);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function toDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function msToDuration(ms) {
+  if (!ms) return '';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+function formatWeekLabel(monday) {
+  const sunday = addDays(monday, 6);
+  const opts = { month: 'short', day: 'numeric' };
+  const locale = 'en-US';
+  return `${monday.toLocaleDateString(locale, opts)} – ${sunday.toLocaleDateString(locale, opts)}, ${sunday.getFullYear()}`;
+}
+
+function isToday(date) {
+  const t = new Date();
+  return date.getFullYear() === t.getFullYear() &&
+    date.getMonth() === t.getMonth() &&
+    date.getDate() === t.getDate();
+}
+
+function showLoading(msg = 'Loading…') {
+  document.getElementById('loading-text').textContent = msg;
+  document.getElementById('loading').style.display = 'flex';
+}
+
+function hideLoading() {
+  document.getElementById('loading').style.display = 'none';
+}
+
+// ── Auth ───────────────────────────────────────────────────────────────────
+
+async function connect() {
+  const input = document.getElementById('token-input').value.trim();
+  if (!input) return;
+  const btn = document.getElementById('connect-btn');
+  btn.disabled = true;
+  document.getElementById('auth-error').textContent = '';
+  showLoading('Connecting…');
+
+  try {
+    token = input;
+    const userRes = await api('/user');
+    if (!userRes.user) throw new Error(userRes.err || 'Invalid token');
+
+    userId = userRes.user.id;
+    const teamsRes = await api('/team');
+    if (!teamsRes.teams || !teamsRes.teams.length) throw new Error('No teams found');
+    teamId = teamsRes.teams[0].id;
+
+    localStorage.setItem('clickup_token', token);
+    localStorage.setItem('clickup_user_id', userId);
+    localStorage.setItem('clickup_team_id', teamId);
+    localStorage.setItem('clickup_user_name', userRes.user.username || userRes.user.email);
+
+    document.getElementById('user-name').textContent = userRes.user.username || userRes.user.email;
+    showApp();
+  } catch (e) {
+    token = null;
+    document.getElementById('auth-error').textContent = e.message;
+    hideLoading();
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function logout() {
+  localStorage.removeItem('clickup_token');
+  localStorage.removeItem('clickup_user_id');
+  localStorage.removeItem('clickup_team_id');
+  localStorage.removeItem('clickup_user_name');
+  token = userId = teamId = null;
+  tasks = [];
+  timeEntries = {};
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'flex';
+  document.getElementById('token-input').value = '';
+  document.getElementById('auth-error').textContent = '';
+}
+
+function showApp() {
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  currentWeekStart = getMonday(new Date());
+  loadWeek();
+}
+
+// ── Data Fetching ──────────────────────────────────────────────────────────
+
+async function fetchAllTasks() {
+  let all = [];
+  let page = 0;
+  while (true) {
+    const res = await api(`/team/${teamId}/task?assignees[]=${userId}&subtasks=true&include_closed=true&page=${page}`);
+    if (!res.tasks || !res.tasks.length) break;
+    all = all.concat(res.tasks);
+    if (res.tasks.length < 100) break;
+    page++;
+  }
+  return all;
+}
+
+async function fetchListUrl(listId) {
+  try {
+    const res = await api(`/list/${listId}/view`);
+    const views = res.views || [];
+    const listView = views.find(v => v.type === 'list') || views[0];
+    if (listView) return `https://app.clickup.com/${teamId}/v/l/${listView.id}`;
+  } catch (e) {
+    console.warn('fetchListUrl failed for', listId, e.message);
+  }
+  // Fallback: direct list URL format
+  return `https://app.clickup.com/${teamId}/v/li/${listId}`;
+}
+
+async function fetchTimeEntries(weekStart) {
+  const start = weekStart.getTime();
+  const end = addDays(weekStart, 7).getTime() - 1;
+  const res = await api(`/team/${teamId}/time_entries?start=${start}&end=${end}&assignee=${userId}`);
+  return res.data || [];
+}
+
+async function loadWeek() {
+  showLoading('Loading timesheet…');
+  document.getElementById('week-label').textContent = formatWeekLabel(currentWeekStart);
+
+  try {
+    const [rawTasks, rawEntries] = await Promise.all([
+      fetchAllTasks(),
+      fetchTimeEntries(currentWeekStart)
+    ]);
+
+    // Fetch list view URLs in parallel for all unique lists
+    const uniqueListIds = [...new Set(rawTasks.map(t => t.list?.id).filter(Boolean))];
+    const listUrlMap = {};
+    await Promise.all(uniqueListIds.map(async id => {
+      listUrlMap[id] = await fetchListUrl(id);
+    }));
+
+    const rawMapped = rawTasks.map(t => ({
+      id: t.id,
+      name: t.name,
+      status: t.status ? t.status.status : null,
+      list: t.list ? t.list.name : '',
+      listId: t.list ? t.list.id : null,
+      listUrl: t.list ? listUrlMap[t.list.id] : null,
+      url: t.url || null,
+      folder: t.folder ? t.folder.name : '',
+      parent: t.parent || null
+    }));
+
+    // Build ordered list: each parent followed immediately by its subtasks
+    const taskMap = new Map(rawMapped.map(t => [t.id, t]));
+    const parents = rawMapped.filter(t => !t.parent || !taskMap.has(t.parent));
+    const children = rawMapped.filter(t => t.parent && taskMap.has(t.parent));
+    const childrenByParent = new Map();
+    children.forEach(t => {
+      if (!childrenByParent.has(t.parent)) childrenByParent.set(t.parent, []);
+      childrenByParent.get(t.parent).push(t);
+    });
+    tasks = [];
+    parents.forEach(p => {
+      tasks.push(p);
+      (childrenByParent.get(p.id) || []).forEach(c => tasks.push(c));
+    });
+
+    timeEntries = {};
+    for (const entry of rawEntries) {
+      const taskId = entry.task ? entry.task.id : null;
+      if (!taskId) continue;
+      const entryDate = new Date(Number(entry.start));
+      const key = `${taskId}_${toDateKey(entryDate)}`;
+      if (!timeEntries[key]) timeEntries[key] = [];
+      timeEntries[key].push({ id: entry.id, duration: Number(entry.duration), start: Number(entry.start) });
+    }
+
+    renderGrid();
+  } catch (e) {
+    document.getElementById('grid-container').innerHTML =
+      `<div class="empty-state">Error loading data: ${e.message}</div>`;
+  } finally {
+    hideLoading();
+  }
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+
+const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function renderGrid() {
+  const container = document.getElementById('grid-container');
+
+  if (!tasks.length) {
+    container.innerHTML = '<div class="empty-state">No tasks assigned to you this week.</div>';
+    return;
+  }
+
+  const days = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
+
+  let html = '<table><thead><tr>';
+  html += '<th>Task</th>';
+  days.forEach((d, i) => {
+    const cls = isToday(d) ? 'today-col' : (i >= 5 ? 'weekend-col' : '');
+    html += `<th${cls ? ` class="${cls}"` : ''}>${DAY_NAMES[i]}<br><span style="font-size:11px;font-weight:400">${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></th>`;
+  });
+  html += '<th>Total</th></tr></thead><tbody>';
+
+  const dayTotals = new Array(7).fill(0);
+  let grandTotal = 0;
+
+  const DONE_STATUSES = ['complete', 'completed', 'done', 'closed'];
+  const visibleTasks = showCompleted
+    ? tasks
+    : tasks.filter(t => !DONE_STATUSES.includes((t.status || '').toLowerCase()));
+
+  // Group tasks by list
+  const groups = [];
+  const groupMap = new Map();
+  visibleTasks.forEach(task => {
+    const listName = task.list || 'Other';
+    if (!groupMap.has(listName)) {
+      groupMap.set(listName, { tasks: [], listUrl: task.listUrl });
+      groups.push(listName);
+    }
+    groupMap.get(listName).tasks.push(task);
+  });
+
+  groups.forEach(listName => {
+    const { tasks: groupTasks, listUrl: groupUrl } = groupMap.get(listName);
+    const isCollapsed = collapsedLists.has(listName);
+
+    // Compute group total for display in header
+    let groupTotal = 0;
+    groupTasks.forEach(task => {
+      days.forEach(d => {
+        const entries = timeEntries[`${task.id}_${toDateKey(d)}`] || [];
+        groupTotal += entries.reduce((s, e) => s + e.duration, 0);
+      });
+    });
+
+    const chevronCls = isCollapsed ? ' collapsed' : '';
+    const totalDisplay = groupTotal > 0 ? msToDuration(groupTotal) : '';
+    html += `<tr class="list-group-header" data-list="${escHtml(listName)}" onclick="toggleGroup(this.dataset.list)">`;
+    const listUrl = groupUrl;
+    const linkHtml = listUrl ? `<a class="group-link" href="${listUrl}" target="_blank" onclick="event.stopPropagation()" title="Open in ClickUp">↗</a>` : '';
+    html += `<td><span class="group-chevron${chevronCls}">▾</span>${escHtml(listName)}${linkHtml}${totalDisplay ? `<span class="group-total">${totalDisplay}</span>` : ''}</td>`;
+    html += `<td colspan="${days.length + 1}"></td></tr>`;
+
+    if (isCollapsed) return;
+
+    groupTasks.forEach(task => {
+      const subtaskCls = task.parent ? ' is-subtask' : '';
+      html += `<tr class="${subtaskCls}">`;
+      const statusHtml = task.status ? `<span class="status-badge status-${escHtml(task.status.toLowerCase().replace(/\s+/g,'-'))}">${escHtml(task.status)}</span>` : '';
+      const taskLink = task.url ? `href="${escHtml(task.url)}" target="_blank"` : '';
+      if (task.parent) {
+        html += `<td><div class="subtask-inner"><div class="subtask-icon"></div><a class="task-name task-link" ${taskLink} title="${escHtml(task.name)}">${escHtml(task.name)}</a>${statusHtml}</div>`;
+      } else {
+        html += `<td><div class="task-row"><a class="task-name task-link" ${taskLink} title="${escHtml(task.name)}">${escHtml(task.name)}</a>${statusHtml}</div>`;
+      }
+      html += '</td>';
+
+      let rowTotal = 0;
+      days.forEach((d, i) => {
+        const key = `${task.id}_${toDateKey(d)}`;
+        const entries = timeEntries[key] || [];
+        const totalMs = entries.reduce((s, e) => s + e.duration, 0);
+        rowTotal += totalMs;
+        dayTotals[i] += totalMs;
+
+        const todayCls = isToday(d) ? ' today-col' : (i >= 5 ? ' weekend-col' : '');
+        const hasCls = totalMs > 0 ? ' has-time' : '';
+        const display = totalMs > 0 ? msToDuration(totalMs) : '';
+        html += `<td class="time-cell${todayCls}${hasCls}" data-task="${task.id}" data-date="${toDateKey(d)}" onclick="startEdit(this)">${escHtml(display)}</td>`;
+      });
+
+      grandTotal += rowTotal;
+      const rowTotalDisplay = rowTotal > 0 ? msToDuration(rowTotal) : '—';
+      html += `<td class="total-col">${rowTotalDisplay}</td>`;
+      html += '</tr>';
+    });
+  });
+
+  // Totals row
+  html += '<tr class="total-row"><td>Weekly Total</td>';
+  dayTotals.forEach(ms => {
+    html += `<td class="${ms > 0 ? 'has-total' : ''}">${ms > 0 ? msToDuration(ms) : '—'}</td>`;
+  });
+  html += `<td class="${grandTotal > 0 ? 'has-total' : ''}">${grandTotal > 0 ? msToDuration(grandTotal) : '—'}</td></tr>`;
+
+  html += '</tbody></table>';
+  container.innerHTML = html;
+}
+
+function copyWeekSummary() {
+  const days = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
+  const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  let lines = [`Timesheet — ${formatWeekLabel(currentWeekStart)}`, ''];
+
+  // Group by list
+  const groups = new Map();
+  tasks.forEach(task => {
+    const list = task.list || 'Other';
+    if (!groups.has(list)) groups.set(list, []);
+    groups.get(list).push(task);
+  });
+
+  let grandTotal = 0;
+  groups.forEach((groupTasks, listName) => {
+    let groupTotal = 0;
+    const taskLines = [];
+    groupTasks.forEach(task => {
+      const totalMs = days.reduce((s, d) => {
+        const entries = timeEntries[`${task.id}_${toDateKey(d)}`] || [];
+        return s + entries.reduce((a, e) => a + e.duration, 0);
+      }, 0);
+      if (totalMs > 0) {
+        const indent = task.parent ? '    • ' : '  • ';
+        taskLines.push(`${indent}${task.name}: ${msToDuration(totalMs)}`);
+        groupTotal += totalMs;
+      }
+    });
+    if (taskLines.length) {
+      lines.push(`${listName} (${msToDuration(groupTotal)})`);
+      lines.push(...taskLines);
+      lines.push('');
+      grandTotal += groupTotal;
+    }
+  });
+
+  // Daily breakdown
+  lines.push('Daily breakdown:');
+  days.forEach((d, i) => {
+    const dayTotal = tasks.reduce((s, task) => {
+      const entries = timeEntries[`${task.id}_${toDateKey(d)}`] || [];
+      return s + entries.reduce((a, e) => a + e.duration, 0);
+    }, 0);
+    if (dayTotal > 0) lines.push(`  ${dayNames[i]} ${d.toLocaleDateString('en-US',{month:'short',day:'numeric'})}: ${msToDuration(dayTotal)}`);
+  });
+  lines.push('');
+  lines.push(`Total: ${msToDuration(grandTotal)}`);
+
+  navigator.clipboard.writeText(lines.join('\n')).then(() => {
+    const btn = document.querySelector('[onclick="copyWeekSummary()"]');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+function toggleCompleted() {
+  showCompleted = !showCompleted;
+  const btn = document.getElementById('completed-toggle');
+  btn.textContent = `Completed: ${showCompleted ? 'On' : 'Off'}`;
+  btn.style.color = showCompleted ? 'var(--accent)' : '';
+  btn.style.borderColor = showCompleted ? 'var(--accent)' : '';
+  renderGrid();
+}
+
+function toggleGroup(listName) {
+  if (collapsedLists.has(listName)) {
+    collapsedLists.delete(listName);
+  } else {
+    collapsedLists.add(listName);
+  }
+  renderGrid();
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// ── Cell Editing ───────────────────────────────────────────────────────────
+
+function startEdit(cell) {
+  if (cell.querySelector('input')) return;
+
+  const taskId = cell.dataset.task;
+  const dateKey = cell.dataset.date;
+  const key = `${taskId}_${dateKey}`;
+  const entries = timeEntries[key] || [];
+  const totalMs = entries.reduce((s, e) => s + e.duration, 0);
+  const currentHours = totalMs / 3600000;
+
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = '0';
+  input.step = '0.25';
+  input.value = currentHours > 0 ? String(Math.round(currentHours * 100) / 100) : '';
+  input.placeholder = '0';
+
+  cell.textContent = '';
+  cell.appendChild(input);
+  input.focus();
+  input.select();
+
+  const finish = () => saveCell(cell, taskId, dateKey, currentHours, parseFloat(input.value) || 0);
+  input.addEventListener('blur', finish);
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+    if (e.key === 'Escape') { input.removeEventListener('blur', finish); renderGrid(); }
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const allCells = [...document.querySelectorAll('td.time-cell')];
+      const idx = allCells.indexOf(cell);
+      const next = allCells[e.shiftKey ? idx - 1 : idx + 1];
+      input.removeEventListener('blur', finish);
+      saveCell(cell, taskId, dateKey, currentHours, parseFloat(input.value) || 0)
+        .then(() => { if (next) startEdit(next); });
+    }
+  });
+}
+
+async function saveCell(cell, taskId, dateKey, prevHours, newHours) {
+  if (newHours === prevHours) { renderGrid(); return; }
+
+  const key = `${taskId}_${dateKey}`;
+  const existingEntries = timeEntries[key] || [];
+
+  showLoading('Saving…');
+  try {
+    // Delete all existing entries for this cell
+    for (const entry of existingEntries) {
+      await api(`/team/${teamId}/time_entries/${entry.id}`, { method: 'DELETE' });
+    }
+
+    if (newHours > 0) {
+      const [y, m, d] = dateKey.split('-').map(Number);
+      const dayStart = new Date(y, m - 1, d, 9, 0, 0, 0).getTime(); // default 9am start
+      const duration = Math.round(newHours * 3600000);
+      await api(`/team/${teamId}/time_entries`, {
+        method: 'POST',
+        body: JSON.stringify({ tid: taskId, start: dayStart, duration })
+      });
+    }
+
+    // Refresh time entries for current week
+    const rawEntries = await fetchTimeEntries(currentWeekStart);
+    timeEntries = {};
+    for (const entry of rawEntries) {
+      const tId = entry.task ? entry.task.id : null;
+      if (!tId) continue;
+      const entryDate = new Date(Number(entry.start));
+      const k = `${tId}_${toDateKey(entryDate)}`;
+      if (!timeEntries[k]) timeEntries[k] = [];
+      timeEntries[k].push({ id: entry.id, duration: Number(entry.duration), start: Number(entry.start) });
+    }
+
+    renderGrid();
+  } catch (e) {
+    alert('Error saving: ' + e.message);
+    renderGrid();
+  } finally {
+    hideLoading();
+  }
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+
+function changeWeek(dir) {
+  currentWeekStart = addDays(currentWeekStart, dir * 7);
+  loadWeek();
+}
+
+function goToCurrentWeek() {
+  currentWeekStart = getMonday(new Date());
+  loadWeek();
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+(function init() {
+  const saved = localStorage.getItem('clickup_token');
+  if (saved) {
+    token = saved;
+    userId = localStorage.getItem('clickup_user_id');
+    teamId = localStorage.getItem('clickup_team_id');
+    const name = localStorage.getItem('clickup_user_name');
+    if (userId && teamId) {
+      document.getElementById('user-name').textContent = name || '';
+      showApp();
+      return;
+    }
+    // Fallback: re-auth if IDs missing
+    document.getElementById('token-input').value = saved;
+  }
+})();
+</script>
+</body>
+</html>
