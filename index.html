@@ -217,7 +217,11 @@
     width: 100%;
     border-collapse: collapse;
     min-width: 800px;
+    table-layout: fixed;
   }
+
+  thead th:not(:first-child) { width: 90px; }
+  thead th:first-child { width: auto; }
 
   thead th {
     background: var(--surface);
@@ -458,6 +462,11 @@
   }
 
   td.total-col:hover { background: var(--surface) !important; }
+  td.alltime-col { color: var(--text-dim) !important; font-weight: 500; border-left: 1px dashed var(--border); }
+
+  /* Holidays */
+  thead th.holiday-col { color: #f6a623; opacity: 0.9; }
+  .time-cell.holiday-col { background: rgba(246,166,35,0.05); }
 
   /* Overtime */
   td.overtime { background: var(--overtime-bg) !important; color: var(--red) !important; }
@@ -571,6 +580,8 @@ let collapsedLists = new Set(JSON.parse(localStorage.getItem('collapsed_lists') 
 let showCompleted = false;
 let isDark = localStorage.getItem('theme') !== 'light';
 let timeEntries = {}; // `${taskId}_${YYYY-MM-DD}` → [{id, duration, start}]
+let allTimeTotals = {}; // taskId → total ms ever logged
+let holidays = {}; // YYYY-MM-DD → holiday name
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -731,15 +742,42 @@ async function fetchTimeEntries(weekStart) {
   return res.data || [];
 }
 
+async function fetchHolidays(year) {
+  try {
+    const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/MK`);
+    const data = await res.json();
+    data.forEach(h => { holidays[h.date] = h.name || h.localName; });
+  } catch (e) {}
+}
+
+async function fetchAllTimeTotals() {
+  const start = new Date('2020-01-01').getTime();
+  const end = Date.now();
+  const res = await api(`/team/${teamId}/time_entries?start=${start}&end=${end}&assignee=${userId}`);
+  const totals = {};
+  for (const entry of (res.data || [])) {
+    const taskId = entry.task ? entry.task.id : null;
+    if (!taskId) continue;
+    totals[taskId] = (totals[taskId] || 0) + Number(entry.duration);
+  }
+  return totals;
+}
+
 async function loadWeek() {
   showLoading('Loading timesheet…');
   document.getElementById('week-label').textContent = formatWeekLabel(currentWeekStart);
 
   try {
-    const [rawTasks, rawEntries] = await Promise.all([
+    const year = currentWeekStart.getFullYear();
+    const endYear = addDays(currentWeekStart, 6).getFullYear();
+    const [rawTasks, rawEntries, rawAllTime] = await Promise.all([
       fetchAllTasks(),
-      fetchTimeEntries(currentWeekStart)
+      fetchTimeEntries(currentWeekStart),
+      fetchAllTimeTotals(),
+      fetchHolidays(year),
+      ...(endYear !== year ? [fetchHolidays(endYear)] : [])
     ]);
+    allTimeTotals = rawAllTime;
 
     // Fetch list view URLs in parallel for all unique lists
     const uniqueListIds = [...new Set(rawTasks.map(t => t.list?.id).filter(Boolean))];
@@ -811,10 +849,14 @@ function renderGrid() {
   let html = '<table><thead><tr>';
   html += '<th>Task</th>';
   days.forEach((d, i) => {
-    const cls = isToday(d) ? 'today-col' : (i >= 5 ? 'weekend-col' : '');
-    html += `<th${cls ? ` class="${cls}"` : ''}>${DAY_NAMES[i]}<br><span style="font-size:11px;font-weight:400">${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></th>`;
+    const dateKey = toDateKey(d);
+    const holiday = holidays[dateKey];
+    let cls = isToday(d) ? 'today-col' : (i >= 5 ? 'weekend-col' : '');
+    if (holiday) cls = (cls ? cls + ' ' : '') + 'holiday-col';
+    const holidayAttr = holiday ? ` title="${escHtml(holiday)}"` : '';
+    html += `<th${cls ? ` class="${cls}"` : ''}${holidayAttr}>${DAY_NAMES[i]}<br><span style="font-size:11px;font-weight:400">${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>${holiday ? `<br><span style="font-size:10px;opacity:0.8">${escHtml(holiday)}</span>` : ''}</th>`;
   });
-  html += '<th>Total</th></tr></thead><tbody>';
+  html += '<th>Weekly Total</th><th>Total</th></tr></thead><tbody>';
 
   const dayTotals = new Array(7).fill(0);
   let grandTotal = 0;
@@ -858,7 +900,7 @@ function renderGrid() {
     const listUrl = groupUrl;
     const linkHtml = listUrl ? `<a class="group-link" href="${listUrl}" target="_blank" onclick="event.stopPropagation()" title="Open in ClickUp">↗</a>` : '';
     html += `<td><span class="group-chevron${chevronCls}">▾</span>${escHtml(listName)}${linkHtml}${totalDisplay ? `<span class="group-total">${totalDisplay}</span>` : ''}</td>`;
-    html += `<td colspan="${days.length + 1}"></td></tr>`;
+    html += `<td colspan="${days.length + 2}"></td></tr>`;
 
     if (isCollapsed) return;
 
@@ -883,7 +925,8 @@ function renderGrid() {
         rowTotal += totalMs;
         dayTotals[i] += totalMs;
 
-        const todayCls = isToday(d) ? ' today-col' : (i >= 5 ? ' weekend-col' : '');
+        const holidayCls = holidays[toDateKey(d)] ? ' holiday-col' : '';
+        const todayCls = isToday(d) ? ' today-col' : (i >= 5 ? ' weekend-col' : '') + holidayCls;
         const hasCls = totalMs > 0 ? ' has-time' : '';
         const display = totalMs > 0 ? msToDuration(totalMs) : '';
         html += `<td class="time-cell${todayCls}${hasCls}" data-task="${task.id}" data-date="${toDateKey(d)}" onclick="startEdit(this)">${escHtml(display)}</td>`;
@@ -891,7 +934,10 @@ function renderGrid() {
 
       grandTotal += rowTotal;
       const rowTotalDisplay = rowTotal > 0 ? msToDuration(rowTotal) : '—';
+      const allTimeMs = allTimeTotals[task.id] || 0;
+      const allTimeDisplay = allTimeMs > 0 ? msToDuration(allTimeMs) : '—';
       html += `<td class="total-col">${rowTotalDisplay}</td>`;
+      html += `<td class="total-col alltime-col">${allTimeDisplay}</td>`;
       html += '</tr>';
     });
   });
@@ -902,7 +948,7 @@ function renderGrid() {
     const over = ms > 8 * 3600000;
     html += `<td class="${ms > 0 ? 'has-total' : ''}${over ? ' overtime' : ''}">${ms > 0 ? msToDuration(ms) : '—'}</td>`;
   });
-  html += `<td class="${grandTotal > 0 ? 'has-total' : ''}">${grandTotal > 0 ? msToDuration(grandTotal) : '—'}</td></tr>`;
+  html += `<td class="${grandTotal > 0 ? 'has-total' : ''}">${grandTotal > 0 ? msToDuration(grandTotal) : '—'}</td><td class="total-col alltime-col"></td></tr>`;
 
   html += '</tbody></table>';
   container.innerHTML = html;
