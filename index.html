@@ -468,6 +468,10 @@
   thead th.holiday-col { color: #f6a623; opacity: 0.9; }
   .time-cell.holiday-col { background: rgba(246,166,35,0.05); }
 
+  /* Future days */
+  .time-cell.future-col { opacity: 0.3; cursor: default; }
+  .time-cell.future-col:hover { background: transparent !important; }
+
   /* Overtime */
   td.overtime { background: var(--overtime-bg) !important; color: var(--red) !important; }
 
@@ -926,7 +930,8 @@ function renderGrid() {
         dayTotals[i] += totalMs;
 
         const holidayCls = holidays[toDateKey(d)] ? ' holiday-col' : '';
-        const todayCls = isToday(d) ? ' today-col' : (i >= 5 ? ' weekend-col' : '') + holidayCls;
+        const futureCls = toDateKey(d) > toDateKey(new Date()) ? ' future-col' : '';
+        const todayCls = isToday(d) ? ' today-col' : (i >= 5 ? ' weekend-col' : '') + holidayCls + futureCls;
         const hasCls = totalMs > 0 ? ' has-time' : '';
         const display = totalMs > 0 ? msToDuration(totalMs) : '';
         html += `<td class="time-cell${todayCls}${hasCls}" data-task="${task.id}" data-date="${toDateKey(d)}" onclick="startEdit(this)">${escHtml(display)}</td>`;
@@ -1041,7 +1046,8 @@ async function bulkFill(taskId) {
   if (!hours || isNaN(hours) || hours <= 0) return;
 
   const days = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
-  const weekdays = days.filter((_, i) => i < 5); // Mon–Fri only
+  const today = toDateKey(new Date());
+  const weekdays = days.filter((d, i) => i < 5 && toDateKey(d) <= today);
 
   showLoading('Filling weekdays…');
   try {
@@ -1083,8 +1089,11 @@ function escHtml(str) {
 function startEdit(cell) {
   if (cell.querySelector('input')) return;
 
-  const taskId = cell.dataset.task;
   const dateKey = cell.dataset.date;
+  const today = toDateKey(new Date());
+  if (dateKey > today) return;
+
+  const taskId = cell.dataset.task;
   const key = `${taskId}_${dateKey}`;
   const entries = timeEntries[key] || [];
   const totalMs = entries.reduce((s, e) => s + e.duration, 0);
