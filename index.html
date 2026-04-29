@@ -738,8 +738,7 @@ async function fetchListUrl(listId) {
 async function fetchTimeEntries(weekStart) {
   const start = weekStart.getTime();
   const end = addDays(weekStart, 7).getTime() - 1;
-  // No assignee filter — ClickUp drops holiday entries when assignee is specified
-  const res = await api(`/team/${teamId}/time_entries?start=${start}&end=${end}`);
+  const res = await api(`/team/${teamId}/time_entries?start=${start}&end=${end}&assignee=${userId}`);
   return res.data || [];
 }
 
@@ -1133,23 +1132,17 @@ async function saveCell(cell, taskId, dateKey, prevHours, newHours) {
       await api(`/team/${teamId}/time_entries/${entry.id}`, { method: 'DELETE' });
     }
 
-    timeEntries[key] = [];
-
-    let seededEntry = null;
     if (newHours > 0) {
       const [y, m, d] = dateKey.split('-').map(Number);
       const dayStart = new Date(y, m - 1, d, 9, 0, 0, 0).getTime(); // default 9am start
       const duration = Math.round(newHours * 3600000);
-      const res = await api(`/team/${teamId}/time_entries`, {
+      await api(`/team/${teamId}/time_entries`, {
         method: 'POST',
         body: JSON.stringify({ tid: taskId, start: dayStart, duration })
       });
-      const posted = res.data;
-      seededEntry = { id: posted?.id ?? null, duration: Number(posted?.duration ?? duration), start: Number(posted?.start ?? dayStart) };
-      timeEntries[key] = [seededEntry];
     }
 
-    // Re-fetch to stay in sync with ClickUp
+    // Refresh time entries for current week
     const rawEntries = await fetchTimeEntries(currentWeekStart);
     timeEntries = {};
     for (const entry of rawEntries) {
@@ -1159,10 +1152,6 @@ async function saveCell(cell, taskId, dateKey, prevHours, newHours) {
       const k = `${tId}_${toDateKey(entryDate)}`;
       if (!timeEntries[k]) timeEntries[k] = [];
       timeEntries[k].push({ id: entry.id, duration: Number(entry.duration), start: Number(entry.start) });
-    }
-    // If ClickUp didn't return the just-saved entry yet, keep the seeded value so the cell isn't blank
-    if (seededEntry && (!timeEntries[key] || timeEntries[key].length === 0)) {
-      timeEntries[key] = [seededEntry];
     }
 
     if (cell) renderGrid();
