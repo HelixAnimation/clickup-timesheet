@@ -27,6 +27,10 @@ Weekly grid view — tasks as rows, days as columns. Click a cell to add/edit ho
 - [x] Today column highlighted
 - [x] ClickUp MCP server connected (`claude mcp add --transport http clickup https://mcp.clickup.com/mcp`)
 - [x] Deployed to GitHub Pages via HelixAnimation org
+- [x] Holiday highlighting (MK public holidays via date.nager.at API)
+- [x] All-time total column per task
+- [x] Future dates blocked (dimmed, non-clickable) — ClickUp API doesn't return time entries for dates after today
+- [x] Bulk fill skips future dates
 
 ## Live App
 
@@ -81,4 +85,6 @@ TimeTracking/
 - API errors are thrown so they surface in the UI via alert()
 - Collapsed list groups persist in `collapsedLists` Set (in-memory, resets on reload)
 - Completed tasks filtered via `showCompleted` flag (default: false)
+- **ClickUp API quirk:** The `GET /team/{id}/time_entries` endpoint does NOT return entries for future dates (after today), even if they exist. Creating future entries works via POST, but they won't appear in GET responses until that date arrives. The app blocks editing on future cells to avoid this mismatch.
+- Holidays fetched from `https://date.nager.at/api/v3/PublicHolidays/{year}/MK`
 - To deploy updates: `git add index.html && git commit -m "..." && git push`

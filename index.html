@@ -248,7 +248,7 @@
 
   tbody tr { border-bottom: 1px solid var(--border-soft); }
 
-  tbody tr:hover td { background: var(--hover-bg); }
+  tbody tr:hover td:not(.weekend-col):not(.future-col) { background: var(--hover-bg); }
 
   td {
     padding: 0;
@@ -417,12 +417,12 @@
     border-left: 1px solid var(--border-soft);
   }
 
-  .time-cell:hover { background: var(--hover-bg) !important; }
+  .time-cell:hover:not(.weekend-col):not(.future-col) { background: var(--hover-bg) !important; }
 
   .time-cell.has-time { color: var(--accent); font-weight: 600; }
 
   .time-cell.today-col { background: var(--today-bg); }
-  .time-cell.weekend-col { background: var(--weekend-bg); }
+  .time-cell.weekend-col { background: var(--weekend-bg); color: var(--text-dim); }
   thead th.weekend-col { color: var(--text-dim); opacity: 0.6; }
 
   .time-cell input {
@@ -469,8 +469,13 @@
   .time-cell.holiday-col { background: rgba(246,166,35,0.05); }
 
   /* Future days */
-  .time-cell.future-col { opacity: 0.3; cursor: default; }
-  .time-cell.future-col:hover { background: transparent !important; }
+  .time-cell.future-col { opacity: 0.3; cursor: not-allowed; background: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(128,128,128,0.12) 5px, rgba(128,128,128,0.12) 10px) !important; }
+  .time-cell.weekend-col.future-col { background: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(128,128,128,0.12) 5px, rgba(128,128,128,0.12) 10px) !important; opacity: 0.3; cursor: not-allowed; }
+  .time-cell.future-col.holiday-col { background: repeating-linear-gradient(45deg, rgba(246,166,35,0.10), rgba(246,166,35,0.10) 5px, rgba(246,166,35,0.18) 5px, rgba(246,166,35,0.18) 10px) !important; }
+  .time-cell.future-col:hover { background: repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(128,128,128,0.12) 5px, rgba(128,128,128,0.12) 10px) !important; }
+  .time-cell.future-col.holiday-col:hover { background: repeating-linear-gradient(45deg, rgba(246,166,35,0.10), rgba(246,166,35,0.10) 5px, rgba(246,166,35,0.18) 5px, rgba(246,166,35,0.18) 10px) !important; }
+  thead th.future-col { opacity: 0.35; color: var(--text-dim); }
+  thead th.future-col.holiday-col { opacity: 0.7; color: #f6a623; }
 
   /* Overtime */
   td.overtime { background: var(--overtime-bg) !important; color: var(--red) !important; }
@@ -931,7 +936,8 @@ function renderGrid() {
 
         const holidayCls = holidays[toDateKey(d)] ? ' holiday-col' : '';
         const futureCls = toDateKey(d) > toDateKey(new Date()) ? ' future-col' : '';
-        const todayCls = isToday(d) ? ' today-col' : (i >= 5 ? ' weekend-col' : '') + holidayCls + futureCls;
+        const weekendCls = i >= 5 ? ' weekend-col' : '';
+        const todayCls = isToday(d) ? ' today-col' : weekendCls + holidayCls + futureCls;
         const hasCls = totalMs > 0 ? ' has-time' : '';
         const display = totalMs > 0 ? msToDuration(totalMs) : '';
         html += `<td class="time-cell${todayCls}${hasCls}" data-task="${task.id}" data-date="${toDateKey(d)}" onclick="startEdit(this)">${escHtml(display)}</td>`;
