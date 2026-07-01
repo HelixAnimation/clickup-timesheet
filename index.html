@@ -744,11 +744,73 @@ async function fetchListUrl(listId) {
   return `https://app.clickup.com/${teamId}/v/li/${listId}`;
 }
 
+// Page through all time entries in [startMs, endMs] for the user, deduped by
+// entry id. ClickUp's range filter is unreliable (see fetchAllUserEntries), so
+// callers fetch a WIDE range here and slice client-side.
+async function fetchTimeEntriesPaged(startMs, endMs) {
+  const byId = new Map();
+  for (let page = 0; page < 200; page++) { // hard safety cap
+    const res = await api(`/team/${teamId}/time_entries?start=${startMs}&end=${endMs}&assignee=${userId}&page=${page}`);
+    const batch = res.data || [];
+    let newCount = 0;
+    for (const e of batch) {
+      if (e.id != null && !byId.has(e.id)) { byId.set(e.id, e); newCount++; }
+    }
+    // Stop on an empty page or when the server starts repeating entries.
+    // (We can't compare against a known page size, so dedup is our end signal.)
+    if (batch.length === 0 || newCount === 0) break;
+  }
+  return [...byId.values()];
+}
+
+// ClickUp's time_entries range filter is reliable only for WIDE ranges: a
+// 6-month query returned all 96 entries correctly, while single-week/month
+// queries came back truncated or date-shifted. So we always fetch a multi-year
+// window once and slice it on the client.
+const HISTORY_START_MS = new Date('2020-01-01').getTime();
+
+async function fetchAllUserEntries() {
+  return await fetchTimeEntriesPaged(HISTORY_START_MS, Date.now());
+}
+
+// Build the taskId_dateKey -> entries[] map for a single week.
+function buildWeekEntryMap(entries, weekStart) {
+  const weekStartMs = weekStart.getTime();
+  const weekEndMs = addDays(weekStart, 7).getTime();
+  const map = {};
+  for (const e of entries) {
+    const s = Number(e.start);
+    if (s < weekStartMs || s >= weekEndMs) continue;
+    const taskId = e.task ? e.task.id : null;
+    if (!taskId) continue;
+    const key = `${taskId}_${toDateKey(new Date(s))}`;
+    if (!map[key]) map[key] = [];
+    map[key].push({ id: e.id, duration: Number(e.duration), start: s });
+  }
+  return map;
+}
+
+// Build the taskId -> total-ms map across all history.
+function buildTotals(entries) {
+  const totals = {};
+  for (const e of entries) {
+    const taskId = e.task ? e.task.id : null;
+    if (!taskId) continue;
+    totals[taskId] = (totals[taskId] || 0) + Number(e.duration);
+  }
+  return totals;
+}
+
+// Refresh helper used by saveCell/bulkFill: fetch full history, return just the
+// entries that fall in this week.
 async function fetchTimeEntries(weekStart) {
-  const start = weekStart.getTime();
-  const end = addDays(weekStart, 7).getTime() - 1;
-  const res = await api(`/team/${teamId}/time_entries?start=${start}&end=${end}&assignee=${userId}`);
-  return res.data || [];
+  const all = await fetchAllUserEntries();
+  const weekStartMs = weekStart.getTime();
+  const weekEndMs = addDays(weekStart, 7).getTime();
+  return all.filter(e => {
+    const s = Number(e.start);
+    return s >= weekStartMs && s < weekEndMs;
+  });
 }
 
 async function fetchHolidays(year) {
@@ -759,19 +821,6 @@ async function fetchHolidays(year) {
   } catch (e) {}
 }
 
-async function fetchAllTimeTotals() {
-  const start = new Date('2020-01-01').getTime();
-  const end = Date.now();
-  const res = await api(`/team/${teamId}/time_entries?start=${start}&end=${end}&assignee=${userId}`);
-  const totals = {};
-  for (const entry of (res.data || [])) {
-    const taskId = entry.task ? entry.task.id : null;
-    if (!taskId) continue;
-    totals[taskId] = (totals[taskId] || 0) + Number(entry.duration);
-  }
-  return totals;
-}
-
 async function loadWeek() {
   showLoading('Loading timesheet…');
   document.getElementById('week-label').textContent = formatWeekLabel(currentWeekStart);
@@ -779,14 +828,13 @@ async function loadWeek() {
   try {
     const year = currentWeekStart.getFullYear();
     const endYear = addDays(currentWeekStart, 6).getFullYear();
-    const [rawTasks, rawEntries, rawAllTime] = await Promise.all([
+    const [rawTasks, allEntriesRaw] = await Promise.all([
       fetchAllTasks(),
-      fetchTimeEntries(currentWeekStart),
-      fetchAllTimeTotals(),
+      fetchAllUserEntries(),
       fetchHolidays(year),
       ...(endYear !== year ? [fetchHolidays(endYear)] : [])
     ]);
-    allTimeTotals = rawAllTime;
+    allTimeTotals = buildTotals(allEntriesRaw);
 
     // Fetch list view URLs in parallel for all unique lists
     const uniqueListIds = [...new Set(rawTasks.map(t => t.list?.id).filter(Boolean))];
@@ -822,15 +870,7 @@ async function loadWeek() {
       (childrenByParent.get(p.id) || []).forEach(c => tasks.push(c));
     });
 
-    timeEntries = {};
-    for (const entry of rawEntries) {
-      const taskId = entry.task ? entry.task.id : null;
-      if (!taskId) continue;
-      const entryDate = new Date(Number(entry.start));
-      const key = `${taskId}_${toDateKey(entryDate)}`;
-      if (!timeEntries[key]) timeEntries[key] = [];
-      timeEntries[key].push({ id: entry.id, duration: Number(entry.duration), start: Number(entry.start) });
-    }
+    timeEntries = buildWeekEntryMap(allEntriesRaw, currentWeekStart);
 
     renderGrid();
   } catch (e) {

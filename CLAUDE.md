@@ -86,5 +86,6 @@ TimeTracking/
 - Collapsed list groups persist in `collapsedLists` Set (in-memory, resets on reload)
 - Completed tasks filtered via `showCompleted` flag (default: false)
 - **ClickUp API quirk:** The `GET /team/{id}/time_entries` endpoint does NOT return entries for future dates (after today), even if they exist. Creating future entries works via POST, but they won't appear in GET responses until that date arrives. The app blocks editing on future cells to avoid this mismatch.
+- **ClickUp API quirk (date filtering is broken):** The `start`/`end` range filter on `GET /team/{id}/time_entries` is reliable only for WIDE ranges. Single-week/month queries come back truncated or date-shifted (e.g. a query for week A returns entries from ~4 weeks earlier; an unfiltered query drops entries). A 6-month query returned all entries correctly. The app therefore fetches the full history (since 2020) once via `fetchAllUserEntries()` (paginated + deduped by entry `id`) and slices to the displayed week client-side in `buildWeekEntryMap()`; `buildTotals()` sums the same dataset for the Total column. Do NOT revert to a single narrow-range call — old weeks will look empty again.
 - Holidays fetched from `https://date.nager.at/api/v3/PublicHolidays/{year}/MK`
 - To deploy updates: `git add index.html && git commit -m "..." && git push`
