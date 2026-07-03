@@ -23,7 +23,7 @@ Weekly grid view — tasks as rows, days as columns. Click a cell to add/edit ho
 - [x] Click task name → opens task in ClickUp (new tab)
 - [x] Status badges on tasks (in progress / complete / to do)
 - [x] Filter to hide/show completed tasks (hidden by default)
-- [x] Toolbar filters for task type: Production Time / PreProduction / Task
+- [x] Toolbar dropdown filters for live ClickUp task types
 - [x] Saturday/Sunday columns visually dimmed
 - [x] Today column highlighted
 - [x] ClickUp MCP server connected (`claude mcp add --transport http clickup https://mcp.clickup.com/mcp`)
@@ -87,7 +87,7 @@ TimeTracking/
 - All API calls include `Authorization: {token}` header (no "Bearer" prefix)
 - API errors are thrown so they surface in the UI via alert()
 - Collapsed list groups persist in `collapsedLists` Set (in-memory, resets on reload)
-- Task fetch is limited to `Production Time`, `PreProduction`, and regular `Task` task types. The app first tries to resolve a ClickUp custom field named `Task Type` and use dropdown option IDs in the `custom_fields` task query. In the live workspace, those names are ClickUp custom task types instead (`custom_item_id` values: `1001`, `1003`, and default `0`), so the app resolves them from `GET /team/{team_id}/custom_item` and filters with `custom_items[]`. If the API filter fails or returns invalid matches, it falls back to client-side filtering.
+- Task fetch is filtered by live ClickUp task types. The toolbar dropdown is populated from `GET /team/{team_id}/custom_item` plus the regular `Task` type (`custom_item_id=0`), and selected IDs are sent as `custom_items[]`. The default is all task types; clicking one task type isolates that type, and clicking it again returns to all. If the custom task type API fails, the app can still try a ClickUp custom field named `Task Type` via `custom_fields` and then client-side filtering.
 - Completed tasks filtered via `showCompleted` flag (default: false)
 - **ClickUp API quirk:** The `GET /team/{id}/time_entries` endpoint does NOT return entries for future dates (after today), even if they exist. Creating future entries works via POST, but they won't appear in GET responses until that date arrives. The app blocks editing on future cells to avoid this mismatch.
 - **ClickUp API quirk (date filtering is broken):** The `start`/`end` range filter on `GET /team/{id}/time_entries` is reliable only for WIDE ranges. Single-week/month queries come back truncated or date-shifted (e.g. a query for week A returns entries from ~4 weeks earlier; an unfiltered query drops entries). A 6-month query returned all entries correctly. The app therefore fetches the full history (since 2020) once via `fetchAllUserEntries()` (paginated + deduped by entry `id`) and slices to the displayed week client-side in `buildWeekEntryMap()`; `buildTotals()` sums the same dataset for the Total column. Do NOT revert to a single narrow-range call — old weeks will look empty again.
