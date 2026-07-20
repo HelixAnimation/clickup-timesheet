@@ -617,6 +617,7 @@ const TASK_TYPE_FIELD_NAME = 'Task Type';
 const INCLUDED_TASK_TYPES = ['Production Time', 'PreProduction', 'Task'];
 const INCLUDED_TASK_TYPE_LOOKUP = new Set(INCLUDED_TASK_TYPES.map(normalizeFieldText));
 const DEFAULT_TASK_CUSTOM_ITEM_ID = 0;
+const ARTIST_TASK_FOLDER_ID = '901210025033'; // Production TimeTracking
 
 let token = null;
 let userId = null;
@@ -787,6 +788,43 @@ async function fetchTasksPaged(filters = {}) {
   return all;
 }
 
+async function fetchArtistListTasks(list) {
+  let all = [];
+  for (let page = 0; page < 200; page++) {
+    const params = new URLSearchParams();
+    params.append('assignees[]', userId);
+    params.set('subtasks', 'true');
+    params.set('include_closed', 'true');
+    params.set('include_timl', 'true');
+    params.set('page', page);
+    const res = await api(`/list/${list.id}/task?${params.toString()}`);
+    const batch = res.tasks || [];
+    if (!batch.length) break;
+    all = all.concat(batch.map(task => ({
+      ...task,
+      _artistList: { id: list.id, name: list.name }
+    })));
+    if (batch.length < 100) break;
+  }
+  return all;
+}
+
+async function fetchArtistFolderTasks() {
+  try {
+    const res = await api(`/folder/${ARTIST_TASK_FOLDER_ID}/list?archived=false`);
+    const lists = res.lists || [];
+    const results = await Promise.allSettled(lists.map(fetchArtistListTasks));
+    return results.flatMap((result, index) => {
+      if (result.status === 'fulfilled') return result.value;
+      console.warn(`Unable to fetch artist list ${lists[index]?.name || lists[index]?.id || index}:`, result.reason.message);
+      return [];
+    });
+  } catch (e) {
+    console.warn('Unable to fetch Production TimeTracking lists:', e.message);
+    return [];
+  }
+}
+
 function findTaskTypeField(fields = []) {
   return fields.find(f => normalizeFieldText(f.name) === normalizeFieldText(TASK_TYPE_FIELD_NAME)) || null;
 }
@@ -898,7 +936,7 @@ function getTaskTypeLabel(task) {
   return customItemId === String(DEFAULT_TASK_CUSTOM_ITEM_ID) ? 'Task' : customItemId;
 }
 
-async function fetchAllTasks() {
+async function fetchWorkspaceTasks() {
   const field = await resolveTaskTypeFieldFromWorkspace();
   const serverFilter = field ? buildTaskTypeServerFilter(field) : null;
 
@@ -950,6 +988,21 @@ async function fetchAllTasks() {
     }
   }
   return clientFiltered;
+}
+
+async function fetchAllTasks() {
+  const [workspaceTasks, artistTasks] = await Promise.all([
+    fetchWorkspaceTasks(),
+    fetchArtistFolderTasks()
+  ]);
+  const includedArtistTasks = artistTasks.filter(task =>
+    INCLUDED_TASK_TYPE_LOOKUP.has(normalizeFieldText(getTaskTypeLabel(task)))
+  );
+  const byId = new Map(workspaceTasks.map(task => [String(task.id), task]));
+  includedArtistTasks.forEach(task => {
+    if (!byId.has(String(task.id))) byId.set(String(task.id), task);
+  });
+  return [...byId.values()];
 }
 
 async function fetchListUrl(listId) {
@@ -1058,24 +1111,27 @@ async function loadWeek() {
     allTimeTotals = buildTotals(allEntriesRaw);
 
     // Fetch list view URLs in parallel for all unique lists
-    const uniqueListIds = [...new Set(rawTasks.map(t => t.list?.id).filter(Boolean))];
+    const uniqueListIds = [...new Set(rawTasks.map(t => (t._artistList || t.list)?.id).filter(Boolean))];
     const listUrlMap = {};
     await Promise.all(uniqueListIds.map(async id => {
       listUrlMap[id] = await fetchListUrl(id);
     }));
 
-    const rawMapped = rawTasks.map(t => ({
-      id: t.id,
-      name: t.name,
-      status: t.status ? t.status.status : null,
-      taskType: getTaskTypeLabel(t),
-      list: t.list ? t.list.name : '',
-      listId: t.list ? t.list.id : null,
-      listUrl: t.list ? listUrlMap[t.list.id] : null,
-      url: t.url || null,
-      folder: t.folder ? t.folder.name : '',
-      parent: t.parent || null
-    }));
+    const rawMapped = rawTasks.map(t => {
+      const displayList = t._artistList || t.list;
+      return {
+        id: t.id,
+        name: t.name,
+        status: t.status ? t.status.status : null,
+        taskType: getTaskTypeLabel(t),
+        list: displayList ? displayList.name : '',
+        listId: displayList ? displayList.id : null,
+        listUrl: displayList ? listUrlMap[displayList.id] : null,
+        url: t.url || null,
+        folder: t.folder ? t.folder.name : '',
+        parent: t.parent || null
+      };
+    });
 
     // Build ordered list: each parent followed immediately by its subtasks
     const taskMap = new Map(rawMapped.map(t => [t.id, t]));
