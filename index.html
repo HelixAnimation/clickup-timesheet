@@ -634,6 +634,12 @@ let taskTypeFieldMeta = null;
 let taskTypeCustomItemIds = null;
 let customItemNameById = { [DEFAULT_TASK_CUSTOM_ITEM_ID]: 'Task' };
 let activeTaskTypeFilters = new Set(JSON.parse(localStorage.getItem('task_type_filters') || JSON.stringify(INCLUDED_TASK_TYPES)));
+// Session caches reduce repeated ClickUp requests while navigating weeks.
+let cachedTasks = null;
+let cachedAllTimeEntries = null;
+const listUrlCache = new Map();
+let activeLoad = null;
+let loadQueued = false;
 
 // ── Utilities ──────────────────────────────────────────────────────────────
 
@@ -731,6 +737,12 @@ async function connect() {
     localStorage.setItem('clickup_team_id', teamId);
     localStorage.setItem('clickup_user_name', userRes.user.username || userRes.user.email);
 
+    cachedTasks = null;
+    cachedAllTimeEntries = null;
+    listUrlCache.clear();
+    taskTypeFieldMeta = null;
+    taskTypeCustomItemIds = null;
+
     document.getElementById('user-name').textContent = userRes.user.username || userRes.user.email;
     showApp();
   } catch (e) {
@@ -750,6 +762,11 @@ function logout() {
   token = userId = teamId = null;
   tasks = [];
   timeEntries = {};
+  cachedTasks = null;
+  cachedAllTimeEntries = null;
+  listUrlCache.clear();
+  taskTypeFieldMeta = null;
+  taskTypeCustomItemIds = null;
   document.getElementById('app').style.display = 'none';
   document.getElementById('auth-screen').style.display = 'flex';
   document.getElementById('token-input').value = '';
@@ -991,6 +1008,8 @@ async function fetchWorkspaceTasks() {
 }
 
 async function fetchAllTasks() {
+  if (cachedTasks !== null) return cachedTasks;
+
   const [workspaceTasks, artistTasks] = await Promise.all([
     fetchWorkspaceTasks(),
     fetchArtistFolderTasks()
@@ -1002,20 +1021,29 @@ async function fetchAllTasks() {
   includedArtistTasks.forEach(task => {
     if (!byId.has(String(task.id))) byId.set(String(task.id), task);
   });
-  return [...byId.values()];
+  cachedTasks = [...byId.values()];
+  return cachedTasks;
 }
 
 async function fetchListUrl(listId) {
+  if (listUrlCache.has(String(listId))) return listUrlCache.get(String(listId));
+
   try {
     const res = await api(`/list/${listId}/view`);
     const views = res.views || [];
     const listView = views.find(v => v.type === 'list') || views[0];
-    if (listView) return `https://app.clickup.com/${teamId}/v/l/${listView.id}`;
+    if (listView) {
+      const url = `https://app.clickup.com/${teamId}/v/l/${listView.id}`;
+      listUrlCache.set(String(listId), url);
+      return url;
+    }
   } catch (e) {
     console.warn('fetchListUrl failed for', listId, e.message);
   }
   // Fallback: direct list URL format
-  return `https://app.clickup.com/${teamId}/v/li/${listId}`;
+  const fallbackUrl = `https://app.clickup.com/${teamId}/v/li/${listId}`;
+  listUrlCache.set(String(listId), fallbackUrl);
+  return fallbackUrl;
 }
 
 // Page through all time entries in [startMs, endMs] for the user, deduped by
@@ -1043,8 +1071,19 @@ async function fetchTimeEntriesPaged(startMs, endMs) {
 // window once and slice it on the client.
 const HISTORY_START_MS = new Date('2020-01-01').getTime();
 
+function getEndOfTodayMs() {
+  const end = new Date();
+  end.setHours(24, 0, 0, 0);
+  return end.getTime();
+}
+
 async function fetchAllUserEntries() {
-  return await fetchTimeEntriesPaged(HISTORY_START_MS, Date.now());
+  if (cachedAllTimeEntries !== null) return cachedAllTimeEntries;
+
+  // Include the complete local calendar day. ClickUp can return entries whose
+  // start time is later today, even though that timestamp is after now.
+  cachedAllTimeEntries = await fetchTimeEntriesPaged(HISTORY_START_MS, getEndOfTodayMs());
+  return cachedAllTimeEntries;
 }
 
 // Build the taskId_dateKey -> entries[] map for a single week.
@@ -1096,12 +1135,31 @@ async function fetchHolidays(year) {
 }
 
 async function loadWeek() {
+  if (activeLoad) {
+    loadQueued = true;
+    return activeLoad;
+  }
+
+  const requestedWeekStart = new Date(currentWeekStart);
+  activeLoad = loadWeekData(requestedWeekStart);
+  try {
+    await activeLoad;
+  } finally {
+    activeLoad = null;
+    if (loadQueued) {
+      loadQueued = false;
+      loadWeek();
+    }
+  }
+}
+
+async function loadWeekData(requestedWeekStart) {
   showLoading('Loading timesheet…');
-  document.getElementById('week-label').textContent = formatWeekLabel(currentWeekStart);
+  document.getElementById('week-label').textContent = formatWeekLabel(requestedWeekStart);
 
   try {
-    const year = currentWeekStart.getFullYear();
-    const endYear = addDays(currentWeekStart, 6).getFullYear();
+    const year = requestedWeekStart.getFullYear();
+    const endYear = addDays(requestedWeekStart, 6).getFullYear();
     const [rawTasks, allEntriesRaw] = await Promise.all([
       fetchAllTasks(),
       fetchAllUserEntries(),
@@ -1148,7 +1206,9 @@ async function loadWeek() {
       (childrenByParent.get(p.id) || []).forEach(c => tasks.push(c));
     });
 
-    timeEntries = buildWeekEntryMap(allEntriesRaw, currentWeekStart);
+    // Do not let an older request overwrite a newer week selection.
+    if (currentWeekStart.getTime() !== requestedWeekStart.getTime()) return;
+    timeEntries = buildWeekEntryMap(allEntriesRaw, requestedWeekStart);
 
     renderGrid();
   } catch (e) {
@@ -1483,6 +1543,7 @@ async function saveCell(cell, taskId, dateKey, prevHours, newHours) {
 
   const key = `${taskId}_${dateKey}`;
   const existingEntries = timeEntries[key] || [];
+  let savedEntry = null;
 
   showLoading('Saving…');
   try {
@@ -1495,13 +1556,19 @@ async function saveCell(cell, taskId, dateKey, prevHours, newHours) {
       const [y, m, d] = dateKey.split('-').map(Number);
       const dayStart = new Date(y, m - 1, d, 9, 0, 0, 0).getTime(); // default 9am start
       const duration = Math.round(newHours * 3600000);
-      await api(`/team/${teamId}/time_entries`, {
+      const response = await api(`/team/${teamId}/time_entries`, {
         method: 'POST',
         body: JSON.stringify({ tid: taskId, start: dayStart, duration })
       });
+      savedEntry = {
+        id: response.data?.id,
+        duration: Number(response.data?.duration ?? duration),
+        start: Number(response.data?.start ?? dayStart)
+      };
     }
 
     // Refresh time entries for current week
+    cachedAllTimeEntries = null;
     const rawEntries = await fetchTimeEntries(currentWeekStart);
     timeEntries = {};
     for (const entry of rawEntries) {
@@ -1511,6 +1578,12 @@ async function saveCell(cell, taskId, dateKey, prevHours, newHours) {
       const k = `${tId}_${toDateKey(entryDate)}`;
       if (!timeEntries[k]) timeEntries[k] = [];
       timeEntries[k].push({ id: entry.id, duration: Number(entry.duration), start: Number(entry.start) });
+    }
+
+    // ClickUp may not expose a just-created entry in GET immediately. Keep it
+    // visible until a later refresh returns the authoritative entry.
+    if (savedEntry && (!timeEntries[key] || timeEntries[key].length === 0)) {
+      timeEntries[key] = [savedEntry];
     }
 
     if (cell) renderGrid();
